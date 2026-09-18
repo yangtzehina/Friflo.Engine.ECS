@@ -25,6 +25,65 @@ public static class Test_StructuralChangeException
         }
     }
     
+    /// Deleting an entity within a query loop moves the last entity of the archetype to the position of the deleted entity.
+    /// Without the exception this entity would be skipped by the loop.
+    [Test]
+    public static void Test_StructuralChangeException_DeleteEntity()
+    {
+        var store = new EntityStore();
+        for (int n = 0; n < 10; n++) {
+            store.CreateEntity(new Position(n, 0, 0));
+        }
+        var query = store.Query<Position>();
+        int count = 0;
+        foreach (var entity in query.Entities) {
+            count++;
+            Assert.Throws<StructuralChangeException>(() => {
+                entity.DeleteEntity();
+            });
+        }
+        Assert.AreEqual(10, count);
+        Assert.AreEqual(10, store.Count);
+        
+        query.ForEachEntity((ref Position _, Entity entity) => {
+            Assert.Throws<StructuralChangeException>(() => {
+                entity.DeleteEntity();
+            });
+        });
+        foreach (var (_, entities) in query.Chunks) {
+            foreach (var entity in entities) {
+                Assert.Throws<StructuralChangeException>(() => {
+                    entity.DeleteEntity();
+                });
+            }
+        }
+        Assert.AreEqual(10, store.Count);
+        
+        // --- delete entities within a query loop using a CommandBuffer
+        var buffer = store.GetCommandBuffer();
+        foreach (var entity in query.Entities) {
+            if (entity.Id % 2 == 0) {
+                buffer.DeleteEntity(entity.Id);
+            }
+        }
+        buffer.Playback();
+        Assert.AreEqual(5, store.Count);
+        
+        // --- exception is not thrown if disabled by the query
+        query.ThrowOnStructuralChange = false;
+        foreach (var entity in query.Entities) {
+            entity.DeleteEntity();
+            break;
+        }
+        Assert.AreEqual(4, store.Count);
+        
+        // --- deleting an entity outside a query loop
+        foreach (var entity in query.Entities.ToEntityList()) {
+            entity.DeleteEntity();
+        }
+        Assert.AreEqual(0, store.Count);
+    }
+    
     [Test]
     public static void Test_StructuralChangeException_Entities()
     {
@@ -55,6 +114,10 @@ public static class Test_StructuralChangeException
         Assert.Throws<StructuralChangeException>(() => {
             entity.CopyEntity(target);
         });
+        Assert.Throws<StructuralChangeException>(() => {
+            target.DeleteEntity();
+        });
+        Assert.IsFalse(target.IsNull); // entity is not deleted
         
         var buffer = store.GetCommandBuffer();
         Assert.Throws<StructuralChangeException>(() => {
