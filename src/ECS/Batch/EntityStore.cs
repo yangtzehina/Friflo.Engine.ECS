@@ -107,6 +107,101 @@ public partial class EntityStoreBase
         }
     }
     
+    /// <summary>
+    /// Fast path of <see cref="QueryEntities.ApplyBatch"/>.<br/>
+    /// A batch maps every entity of an archetype to the same target archetype.
+    /// So all entities of an archetype are moved with one block copy per component type
+    /// instead of moving them one by one with <see cref="ApplyBatchTo"/>.
+    /// </summary>
+    /// <remarks>
+    /// Applying a batch is idempotent regarding the archetype: target(target(A)) == target(A).<br/>
+    /// => An archetype receiving entities never moves its entities and an archetype moving its entities never receives entities.
+    /// </remarks>
+    /// <returns>
+    /// false if the fast path is not applicable. This is the case if:<br/>
+    /// - the query returns single entities instead of entire archetypes. E.g. queries with value conditions or relations.<br/>
+    /// - an event handler observing the changes is registered. Events are sent per entity by <see cref="ApplyBatchTo"/>.<br/>
+    /// - the batch adds / removes indexed components. Their indexes are updated per entity by <see cref="ApplyBatchTo"/>.
+    /// </returns>
+    internal bool TryApplyBatchToArchetypes(EntityBatch batch, in Archetypes archetypes)
+    {
+        if (archetypes.chunkPositions != null) {
+            return false;
+        }
+        var indexChanges = ((batch.componentsAdd.bitSet.l0 | batch.componentsRemove.bitSet.l0) & indexTypesMask) != 0;
+        if (indexChanges                        ||
+            internBase.componentAdded   != null ||
+            internBase.componentRemoved != null ||
+            internBase.tagsChanged      != null) {
+            return false;
+        }
+        var array       = archetypes.array;
+        var length      = archetypes.length;
+        var components  = batch.batchComponents;
+        
+        // --- pass 1: archetypes keeping their entities => only assign AddComponent() values.
+        //     Executed before pass 2 to avoid assigning values twice to entities moved to these archetypes.
+        for (int n = 0; n < length; n++)
+        {
+            var archetype   = array[n];
+            var count       = archetype.entityCount;
+            if (count == 0) {
+                continue;
+            }
+            if (internBase.activeQueryLoops > 0) {
+                throw StructuralChangeWithinQueryLoop();
+            }
+            if (GetBatchArchetype(batch, archetype) != archetype) {
+                continue;
+            }
+            var heapMap = archetype.heapMap;
+            foreach (var componentType in batch.componentsAdd) {
+                heapMap[componentType.StructIndex].SetBatchComponents(components, 0, count);
+            }
+        }
+        // --- pass 2: archetypes changing their entities => move all entities to the target archetype
+        var nodes = ((EntityStore)this).nodes;
+        for (int n = 0; n < length; n++)
+        {
+            var archetype   = array[n];
+            var count       = archetype.entityCount;
+            if (count == 0) {
+                continue;
+            }
+            var newArchetype = GetBatchArchetype(batch, archetype);
+            if (newArchetype == archetype) {
+                continue;
+            }
+            var compIndex   = Archetype.MoveAllEntitiesTo(archetype, newArchetype);
+            var ids         = newArchetype.entityIds;
+            var end         = compIndex + count;
+            for (int index = compIndex; index < end; index++) {
+                ref var node    = ref nodes[ids[index]];
+                node.archetype  = newArchetype;
+                node.compIndex  = index;
+            }
+            var newHeapMap = newArchetype.heapMap;
+            foreach (var componentType in batch.componentsAdd) {
+                newHeapMap[componentType.StructIndex].SetBatchComponents(components, compIndex, count);
+            }
+        }
+        return true;
+    }
+    
+    /// <returns> the archetype of an entity stored in <paramref name="archetype"/> after applying the <paramref name="batch"/> </returns>
+    private Archetype GetBatchArchetype(EntityBatch batch, Archetype archetype)
+    {
+        var newTags = archetype.tags;
+        newTags.Add    (batch.tagsAdd);
+        newTags.Remove (batch.tagsRemove);
+        
+        var newComponentTypes = archetype.componentTypes;
+        newComponentTypes.Add   (batch.componentsAdd);
+        newComponentTypes.Remove(batch.componentsRemove);
+        
+        return GetArchetype(newComponentTypes, newTags);
+    }
+    
     private static void StashComponentValues(EntityBatch batch, StructHeap[] oldHeapMap, int compIndex)
     {
         var componentsChanged = batch.componentsAdd;

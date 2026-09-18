@@ -281,6 +281,63 @@ public sealed class Archetype
         return targetIndex;
     }
     
+    /// <summary>
+    /// Move all entities of <paramref name="sourceArch"/> to <paramref name="targetArch"/> with one block copy per component type.<br/>
+    /// Components not present in <paramref name="sourceArch"/> are set to default.<br/>
+    /// The caller is responsible to update the archetype and component index of the moved entity nodes.
+    /// </summary>
+    /// <returns> the component index in <paramref name="targetArch"/> of the first moved entity </returns>
+    internal static int MoveAllEntitiesTo(Archetype sourceArch, Archetype targetArch)
+    {
+        var count       = sourceArch.entityCount;
+        var targetStart = targetArch.entityCount;
+        targetArch.EnsureCapacity(count);
+        
+        // --- copy entity ids and components as blocks to targetArch
+        new ReadOnlySpan<int>(sourceArch.entityIds, 0, count).CopyTo(new Span<int>(targetArch.entityIds, targetStart, count));
+        var sourceHeapMap = sourceArch.heapMap;
+        foreach (var targetHeap in targetArch.structHeaps)
+        {
+            var sourceHeap = sourceHeapMap[targetHeap.structIndex];
+            if (sourceHeap != null) {
+                sourceHeap.CopyComponentsTo(0, targetHeap, targetStart, count);
+                continue;
+            }
+            targetHeap.SetComponentsDefault(targetStart, count);
+        }
+        targetArch.entityCount = targetStart + count;
+        
+        // --- remove all entities from sourceArch
+        foreach (var sourceHeap in sourceArch.structHeaps) {
+            sourceHeap.ClearComponentReferences(0, count);
+        }
+        sourceArch.entityCount = 0;
+        ShrinkEmpty(sourceArch);
+        return targetStart;
+    }
+    
+    /// <summary>
+    /// Shrink an emptied archetype to the capacity it would reach when removing its entities one by one. See <see cref="MoveLastComponentsTo"/>
+    /// </summary>
+    private static void ShrinkEmpty(Archetype arch)
+    {
+        if (!arch.store.shrinkArchetypes) {
+            return;
+        }
+        var capacity        = arch.memory.capacity;
+        var shrinkThreshold = arch.memory.shrinkThreshold;
+        while (shrinkThreshold >= 0) {  // entityCount == 0 <= shrinkThreshold
+            capacity        = 2 * shrinkThreshold;
+            shrinkThreshold = capacity / 4;
+            if (shrinkThreshold < ArchetypeUtils.MinCapacity) {
+                shrinkThreshold = -1;
+            }
+        }
+        if (capacity != arch.memory.capacity) {
+            Resize(arch, capacity);
+        }
+    }
+    
     internal static void MoveLastComponentsTo(Archetype arch, int newIndex, bool updateCompIndex)
     {
         var lastIndex   = arch.entityCount - 1;

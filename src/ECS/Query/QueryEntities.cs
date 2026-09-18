@@ -54,8 +54,12 @@ public readonly struct QueryEntities  : IEnumerable <Entity>
     /// </summary>
     public void ApplyBatch(EntityBatch batch)
     {
-        var count = query.Count;
         var store = query.store;
+        // fast path: move all entities of an archetype at once
+        if (store.TryApplyBatchToArchetypes(batch, query.GetArchetypes())) {
+            return;
+        }
+        var count = query.Count;
         if (count < 16 * 1024) {
             Span<int> ids = stackalloc int[count];
             int i = 0;
