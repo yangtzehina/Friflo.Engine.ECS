@@ -126,6 +126,47 @@ public static class Test_EntityList
         AreEqual("id: 1  []", entity.ToString());
     }
     
+    /// The target archetype of the last source archetype is cached when applying a batch to multiple entities.
+    /// Entities of different archetypes are added alternating to cover cache misses.
+    [Test]
+    public static void Test_EntityList_ApplyBatch_archetypes()
+    {
+        var store   = new EntityStore();
+        var list    = new EntityList(store);
+        for (int n = 0; n < 300; n++) {
+            Entity entity;
+            switch (n % 3) {
+                case 0:     entity = store.CreateEntity(new Position(n, 0, 0));                         break;
+                case 1:     entity = store.CreateEntity(new Position(n, 0, 0), new Rotation());         break;
+                default:    entity = store.CreateEntity(new Position(n, 0, 0), Tags.Get<TestTag>());    break;
+            }
+            list.Add(entity.Id);
+        }
+        int tagEvents = 0;
+        store.OnTagsChanged += _ => tagEvents++;
+        
+        var batch = new EntityBatch();
+        batch.Add(new Scale3(1, 2, 3));
+        batch.Remove<Rotation>();
+        batch.AddTag<TestTag>();
+        list.ApplyBatch(batch);
+        
+        AreEqual(200, tagEvents); // 100 entities already had TestTag
+        AreEqual(300, store.GetArchetype(ComponentTypes.Get<Position, Scale3>(), Tags.Get<TestTag>()).Count);
+        int index = 0;
+        foreach (var entity in list) {
+            AreEqual(new Position(index++, 0, 0),   entity.GetComponent<Position>());
+            AreEqual(new Scale3(1, 2, 3),           entity.GetComponent<Scale3>());
+            AreEqual("[Position, Scale3, #TestTag]", entity.Archetype.Name);
+        }
+        // same batch applied via a query
+        batch.Clear();
+        batch.RemoveTag<TestTag>();
+        store.Query<Position>().Entities.ApplyBatch(batch);
+        AreEqual(300, store.GetArchetype(ComponentTypes.Get<Position, Scale3>()).Count);
+        AreEqual(500, tagEvents);
+    }
+    
     [Test]
     public static void Test_EntityList_Enumerator()
     {
