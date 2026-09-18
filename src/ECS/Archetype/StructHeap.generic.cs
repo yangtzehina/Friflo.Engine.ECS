@@ -2,6 +2,7 @@
 // See LICENSE file in the project root for full license information.
 
 using System;
+using System.Runtime.CompilerServices;
 using Friflo.Engine.ECS.Index;
 using Friflo.Json.Burst;
 using Friflo.Json.Fliox;
@@ -49,6 +50,13 @@ internal sealed class StructHeap<T> : StructHeap, IComponentStash<T>
         this.components[compIndex] = ((BatchComponent<T>)components[structIndex]).value;
     }
     
+    /// <summary> Assign the batch component value to the components in the given range. </summary>
+    internal override  void SetBatchComponents(BatchComponent[] components, int compIndexStart, int count)
+    {
+        var value = ((BatchComponent<T>)components[structIndex]).value;
+        new Span<T>(this.components, compIndexStart, count).Fill(value);
+    }
+    
     // --- StructHeap
     protected override  int     ComponentsLength    => components.Length;
 
@@ -72,6 +80,25 @@ internal sealed class StructHeap<T> : StructHeap, IComponentStash<T>
     {
         var targetHeap = (StructHeap<T>)target;
         targetHeap.components[targetPos] = components[sourcePos];
+    }
+    
+    /// <summary> Copy a range of components to the <paramref name="target"/> heap with a single block copy. </summary>
+    internal override void CopyComponentsTo(int sourcePos, StructHeap target, int targetPos, int count)
+    {
+        var targetHeap  = (StructHeap<T>)target;
+        var source      = new ReadOnlySpan<T>(components, sourcePos, count);
+        source.CopyTo(new Span<T>(targetHeap.components, targetPos, count));
+    }
+    
+    /// <summary>
+    /// Clear stale components in the given range only if <typeparamref name="T"/> contains references
+    /// so they do not keep objects alive. Unmanaged components are left untouched.
+    /// </summary>
+    internal override void ClearComponentReferences(int compIndexStart, int count)
+    {
+        if (RuntimeHelpers.IsReferenceOrContainsReferences<T>()) {
+            new Span<T>(components, compIndexStart, count).Clear();
+        }
     }
     
     internal override void CopyComponent(int sourcePos, StructHeap targetHeap, int targetPos, in CopyContext context, long updateIndexTypes)
