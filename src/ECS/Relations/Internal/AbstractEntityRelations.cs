@@ -58,6 +58,73 @@ internal abstract class AbstractEntityRelations
     internal  virtual  void                 AddIncomingRelations         (int target, List<EntityLink> result)                         => throw new InvalidOperationException($"type: {GetType().Name}");
     internal  virtual  void                 RemoveLinksWithTarget        (int targetId)                                                => throw new InvalidOperationException($"type: {GetType().Name}");
     
+    #region snapshot
+    internal void SaveTo(ref RelationsSnapshot snapshot)
+    {
+        snapshot.used = true;
+        archetype.SaveTo(ref snapshot.archetype);
+        idHeap.SaveTo(ref snapshot.idHeap);
+        SaveMap(positionMap, ref snapshot.positions, out snapshot.positionCount);
+        snapshot.hasLinks = linkEntityMap != null;
+        if (linkEntityMap != null) {
+            linkIdsHeap.SaveTo(ref snapshot.linkIdsHeap);
+            SaveMap(linkEntityMap, ref snapshot.links, out snapshot.linkCount);
+        }
+    }
+    
+    internal void RestoreFrom(in RelationsSnapshot snapshot)
+    {
+        version++;
+        if (!snapshot.used) {
+            archetype.RemoveAllEntities();
+            idHeap.RestoreFrom(null);
+            positionMap.Clear();
+            ClearLinks();
+            return;
+        }
+        archetype.RestoreFrom(snapshot.archetype);
+        idHeap.RestoreFrom(snapshot.idHeap);
+        RestoreMap(positionMap, snapshot.positions, snapshot.positionCount);
+        if (snapshot.hasLinks) {
+            // linkEntityMap & linkIdsHeap are created by the constructor of link relations
+            linkIdsHeap.RestoreFrom(snapshot.linkIdsHeap);
+            RestoreMap(linkEntityMap, snapshot.links, snapshot.linkCount);
+        } else {
+            ClearLinks();
+        }
+    }
+    
+    private void ClearLinks()
+    {
+        if (linkEntityMap == null) {
+            return;
+        }
+        linkIdsHeap.RestoreFrom(null);
+        linkEntityMap.Clear();
+    }
+    
+    private static void SaveMap(Dictionary<int, IdArray> map, ref KeyValuePair<int, IdArray>[] target, out int count)
+    {
+        count = map.Count;
+        if (target == null || target.Length < count) {
+            target = new KeyValuePair<int, IdArray>[count];
+        }
+        int n = 0;
+        foreach (var pair in map) {
+            target[n++] = pair;
+        }
+    }
+    
+    private static void RestoreMap(Dictionary<int, IdArray> map, KeyValuePair<int, IdArray>[] source, int count)
+    {
+        map.Clear();
+        for (int n = 0; n < count; n++) {
+            var pair = source[n];
+            map.Add(pair.Key, pair.Value);
+        }
+    }
+    #endregion
+    
     internal static KeyNotFoundException KeyNotFoundException(int id, object key)
     {
         return new KeyNotFoundException($"relation not found. key '{key}' id: {id}");        
@@ -256,4 +323,17 @@ internal abstract class AbstractEntityRelations
         }
     }
     #endregion
+}
+
+internal struct RelationsSnapshot
+{
+    internal    bool                            used;
+    internal    ArchetypeSnapshot               archetype;
+    internal    IdArrayPoolSnapshot[]           idHeap;
+    internal    KeyValuePair<int, IdArray>[]    positions;
+    internal    int                             positionCount;
+    internal    bool                            hasLinks;
+    internal    IdArrayPoolSnapshot[]           linkIdsHeap;
+    internal    KeyValuePair<int, IdArray>[]    links;
+    internal    int                             linkCount;
 }

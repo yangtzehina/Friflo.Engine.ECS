@@ -24,6 +24,36 @@ internal readonly struct IdArrayHeap
         pools = new IdArrayPool[32];
     }
 
+    #region snapshot
+    internal void SaveTo(ref IdArrayPoolSnapshot[] snapshot)
+    {
+        snapshot ??= new IdArrayPoolSnapshot[32];
+        for (int n = 1; n < 32; n++) {
+            var pool = pools[n];
+            if (pool == null) {
+                snapshot[n].used = false;
+                continue;
+            }
+            pool.SaveTo(ref snapshot[n]);
+        }
+    }
+    
+    internal void RestoreFrom(IdArrayPoolSnapshot[] snapshot)
+    {
+        for (int n = 1; n < 32; n++) {
+            if (snapshot == null) {
+                pools[n]?.RestoreFrom(default);
+                continue;
+            }
+            if (snapshot[n].used) {
+                GetOrCreatePool(n).RestoreFrom(snapshot[n]);
+            } else {
+                pools[n]?.RestoreFrom(default);
+            }
+        }
+    }
+    #endregion
+
     internal IdArrayPool GetPool        (int index) => pools[index];
     internal IdArrayPool GetOrCreatePool(int index) => pools[index] ??= new IdArrayPool(index);
     

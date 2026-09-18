@@ -28,6 +28,40 @@ internal sealed class IdArrayPool
         freeStarts  = new StackArray<int>(Array.Empty<int>());
     }
     
+    #region snapshot
+    internal void SaveTo(ref IdArrayPoolSnapshot snapshot)
+    {
+        snapshot.used       = true;
+        snapshot.freeStart  = freeStart;
+        snapshot.maxStart   = maxStart;
+        snapshot.count      = count;
+        snapshot.freeCount  = freeStarts.CopyTo(ref snapshot.freeStarts);
+        // only ids < freeStart are in use
+        if (snapshot.ids == null || snapshot.ids.Length < freeStart) {
+            snapshot.ids = new int[freeStart];
+        }
+        Array.Copy(ids, snapshot.ids, freeStart);
+    }
+    
+    internal void RestoreFrom(in IdArrayPoolSnapshot snapshot)
+    {
+        if (!snapshot.used) {
+            freeStart   = 0;
+            count       = 0;
+            freeStarts.Clear();
+            return;
+        }
+        freeStart   = snapshot.freeStart;
+        count       = snapshot.count;
+        if (ids.Length < snapshot.freeStart) {
+            maxStart = Math.Max(maxStart, snapshot.maxStart);
+            ArrayUtils.Resize(ref ids, maxStart);
+        }
+        Array.Copy(snapshot.ids, ids, snapshot.freeStart);
+        freeStarts.Set(snapshot.freeStarts, snapshot.freeCount);
+    }
+    #endregion
+    
     internal static int[] GetIds(int count, IdArrayHeap heap)
     {
         return heap.pools[IdArrayHeap.PoolIndex(count)].ids;
@@ -77,4 +111,15 @@ internal sealed class IdArrayPool
         freeStarts.Clear();
     }
     
+}
+
+internal struct IdArrayPoolSnapshot
+{
+    internal    bool    used;
+    internal    int[]   ids;
+    internal    int[]   freeStarts;
+    internal    int     freeCount;
+    internal    int     freeStart;
+    internal    int     maxStart;
+    internal    int     count;
 }

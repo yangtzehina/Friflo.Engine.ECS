@@ -371,6 +371,65 @@ public sealed class Archetype
     
     #endregion
     
+#region component columns
+    /// <summary>
+    /// Calls <see cref="IComponentColumnVisitor.VisitColumn{T}"/> for every component type of the archetype
+    /// passing the components of all its entities as a <see cref="Span{T}"/>.<br/>
+    /// Enables generic access to component columns without knowing their types at compile time.
+    /// E.g. to implement a serializer, a checksum or a debug view.
+    /// </summary>
+    /// <remarks> The order of components in a column is equal to the order of <see cref="EntityIds"/>. </remarks>
+    public void VisitComponentColumns(IComponentColumnVisitor visitor)
+    {
+        if (visitor == null) {
+            throw new ArgumentNullException(nameof(visitor));
+        }
+        foreach (var heap in structHeaps) {
+            heap.VisitColumn(this, visitor);
+        }
+    }
+    
+    internal void SaveTo(ref ArchetypeSnapshot snapshot)
+    {
+        var count       = entityCount;
+        snapshot.count  = count;
+        if (snapshot.ids == null || snapshot.ids.Length < count) {
+            snapshot.ids = new int[count];
+        }
+        new ReadOnlySpan<int>(entityIds, 0, count).CopyTo(snapshot.ids);
+        var heaps = structHeaps;
+        snapshot.columns ??= new Array[heaps.Length];
+        for (int n = 0; n < heaps.Length; n++) {
+            heaps[n].CopyColumnTo(ref snapshot.columns[n], count);
+        }
+    }
+    
+    /// <summary> Restore entity ids and components. Entity nodes must be updated by the caller. </summary>
+    internal void RestoreFrom(in ArchetypeSnapshot snapshot)
+    {
+        var count       = snapshot.count;
+        var oldCount    = entityCount;
+        entityCount     = 0;
+        EnsureCapacity(count);
+        new ReadOnlySpan<int>(snapshot.ids, 0, count).CopyTo(entityIds);
+        var heaps = structHeaps;
+        for (int n = 0; n < heaps.Length; n++) {
+            var heap = heaps[n];
+            heap.CopyColumnFrom(snapshot.columns[n], count);
+            heap.ClearColumnReferences(count, oldCount - count);
+        }
+        entityCount = count;
+    }
+    
+    internal void RemoveAllEntities()
+    {
+        foreach (var heap in structHeaps) {
+            heap.ClearColumnReferences(0, entityCount);
+        }
+        entityCount = 0;
+    }
+    #endregion
+    
 #region internal methods
     private QueryEntities GetEntities() {
         query ??= new ArchetypeQuery(this);
