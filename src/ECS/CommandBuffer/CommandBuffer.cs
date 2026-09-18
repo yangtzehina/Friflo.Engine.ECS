@@ -89,6 +89,12 @@ public sealed class CommandBuffer : ICommandBuffer
         internal            bool                returnedBuffer;
         //
         internal            CommandBufferSynced synced;
+        //
+        /// <summary> true if the buffer is part of <see cref="TaskCommandBuffers"/> </summary>
+        internal            bool                taskBuffer;
+        /// <summary> entity ids reserved on the main thread. Used by <see cref="CreateEntity"/> of a task buffer. </summary>
+        internal            int[]               reservedIds;
+        internal            int                 reservedCount;
         
         
         internal Intern(EntityStore store, ComponentCommands[] componentCommandTypes) {
@@ -219,6 +225,44 @@ public sealed class CommandBuffer : ICommandBuffer
         intern.returnedBuffer   = false;
         intern.reuseBuffer      = false;
     }
+    
+    #region task buffer
+    internal int  ReservedIdCount => intern.reservedCount;
+    
+    internal void InitTaskBuffer() {
+        intern.taskBuffer   = true;
+        intern.reuseBuffer  = true;
+        intern.reservedIds  = Array.Empty<int>();
+    }
+    
+    /// <summary> Ensure <paramref name="count"/> reserved ids are available. Must be called on the main thread. </summary>
+    internal void ReserveIds(int count)
+    {
+        var available = intern.reservedCount;
+        if (available >= count) {
+            return;
+        }
+        if (intern.reservedIds.Length < count) {
+            ArrayUtils.Resize(ref intern.reservedIds, count);
+        }
+        // Ids are consumed from the end. So keep available ids at the end and put new ids in front of them.
+        var ids     = intern.reservedIds;
+        var missing = count - available;
+        Array.Copy(ids, 0, ids, missing, available);
+        var store   = intern.store;
+        for (int n = missing - 1; n >= 0; n--) {
+            ids[n] = store.NewId();
+        }
+        intern.reservedCount = count;
+    }
+    
+    /// <summary> Return reserved ids not used by <see cref="CreateEntity"/> to the store. Must be called on the main thread. </summary>
+    internal void ReleaseIds()
+    {
+        intern.store.ReturnIds(new ReadOnlySpan<int>(intern.reservedIds, 0, intern.reservedCount));
+        intern.reservedCount = 0;
+    }
+    #endregion
     
     private void ExecuteEntityCommands()
     {
@@ -639,8 +683,16 @@ public sealed class CommandBuffer : ICommandBuffer
             throw CannotReuseCommandBuffer();
         }
         int id;
-        lock (intern.componentCommandTypes) {
-            id = intern.store.NewId();
+        if (intern.taskBuffer) {
+            // Task buffers are used concurrently. EntityStore.NewId() is neither thread safe nor deterministic in this case.
+            if (intern.reservedCount == 0) {
+                throw new InvalidOperationException("no reserved entity id available. Use TaskCommandBuffers.ReserveEntityIds() before running the job.");
+            }
+            id = intern.reservedIds[--intern.reservedCount];
+        } else {
+            lock (intern.componentCommandTypes) {
+                id = intern.store.NewId();
+            }
         }
         var count   = intern.entityCommandCount; 
 

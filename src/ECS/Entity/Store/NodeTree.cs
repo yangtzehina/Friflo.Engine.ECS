@@ -508,6 +508,20 @@ public partial class EntityStore
         return id;
     }
     
+    /// <summary>
+    /// Return ids acquired with <see cref="NewId"/> which are not used to create an entity.<br/>
+    /// Subsequent <see cref="NewId"/> calls return the given <paramref name="ids"/> starting with the last id.
+    /// </summary>
+    internal void ReturnIds(ReadOnlySpan<int> ids)
+    {
+        if (!recycleIds) {
+            return;
+        }
+        foreach (var id in ids) {
+            intern.recycleIds.Push(id);
+        }
+    }
+    
     /// <remarks> Set <see cref="EntityNode.archetype"/> = null. </remarks>
     internal void DeleteNode(Entity entity)
     {
