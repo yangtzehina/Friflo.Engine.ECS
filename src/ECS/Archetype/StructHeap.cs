@@ -47,6 +47,11 @@ internal abstract class StructHeap : IComponentStash
     internal  abstract  void        RemoveIndex             (Entity entity);
     internal  abstract  bool        GetComponentMember<TField>(int compIndex, MemberPath memberPath, out TField value, out Exception exception);
     internal  abstract  bool        SetComponentMember<TField>(Entity entity, MemberPath memberPath, TField value, Delegate onMemberChanged, out Exception exception);
+    // --- component column access
+    internal  abstract  void        VisitColumn             (Archetype archetype, IComponentColumnVisitor visitor);
+    internal  abstract  void        CopyColumnTo            (ref Array target, int count);
+    internal  abstract  void        CopyColumnFrom          (Array source, int count);
+    internal  abstract  void        ClearColumnReferences   (int start, int count);
 
     internal StructHeap(int structIndex) {
         this.structIndex    = structIndex;

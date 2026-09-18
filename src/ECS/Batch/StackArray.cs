@@ -45,6 +45,28 @@ internal struct StackArray<T>
         count = curCount + 1;
     }
     
+    /// <summary> Copy the items to <paramref name="target"/>. The array is reused if its capacity is sufficient. </summary>
+    /// <returns> the item count </returns>
+    internal int CopyTo(ref T[] target)
+    {
+        if (target == null || target.Length < count) {
+            target = new T[count];
+        }
+        Array.Copy(items, target, count);
+        return count;
+    }
+    
+    /// <summary> Replace the items with the first <paramref name="sourceCount"/> items of <paramref name="source"/>. </summary>
+    internal void Set(T[] source, int sourceCount)
+    {
+        Clear();
+        if (items.Length < sourceCount) {
+            items = new T[sourceCount];
+        }
+        Array.Copy(source, items, sourceCount);
+        count = sourceCount;
+    }
+    
     internal void Clear() {
         var end         = count;
         var curItems    = items;
