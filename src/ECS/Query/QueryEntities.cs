@@ -62,14 +62,16 @@ public readonly struct QueryEntities  : IEnumerable <Entity>
             foreach (var entity in query.Entities) {
                 ids[i++] = entity.Id;
             }
+            var idsCache = new EntityStoreBase.BatchArchetypeCache();
             foreach (var id in ids) {
-                store.ApplyBatchTo(batch, id);
+                store.ApplyBatchTo(batch, id, ref idsCache);
             }
             return;
         }
         EntityList entityList = ToEntityList(); // TODO may use a pooled EntityList
+        var cache = new EntityStoreBase.BatchArchetypeCache();
         foreach (var entity in entityList) {
-            store.ApplyBatchTo(batch, entity.Id);
+            store.ApplyBatchTo(batch, entity.Id, ref cache);
         }
     }
     
