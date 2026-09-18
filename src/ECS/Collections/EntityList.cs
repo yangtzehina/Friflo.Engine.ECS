@@ -191,8 +191,9 @@ public sealed class EntityList : IList<Entity>, IReadOnlyList<Entity>
     public void ApplyBatch(EntityBatch batch)
     {
         var store = entityStore;
+        var cache = new EntityStoreBase.BatchArchetypeCache();
         foreach (var id in Ids) {
-            store.ApplyBatchTo(batch, id.Id);
+            store.ApplyBatchTo(batch, id.Id, ref cache);
         }
     }
     #endregion

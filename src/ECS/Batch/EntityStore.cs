@@ -22,6 +22,13 @@ public partial class EntityStoreBase
     internal int PooledEntityBatchCount => internBase.entityBatches.Count;
     
     private readonly long indexTypesMask = Static.EntitySchema.indexTypes.bitSet.l0;
+    
+    /// <summary> Used by <see cref="ApplyBatchTo(EntityBatch,int,ref BatchArchetypeCache)"/> when applying a batch to multiple entities. </summary>
+    internal struct BatchArchetypeCache
+    {
+        internal    Archetype   source;
+        internal    Archetype   target;
+    }
 
     internal EntityBatch GetBatch(int entityId)
     {
@@ -35,6 +42,18 @@ public partial class EntityStoreBase
     
     internal void ApplyBatchTo(EntityBatch batch, int entityId)
     {
+        var cache = new BatchArchetypeCache();
+        ApplyBatchTo(batch, entityId, ref cache);
+    }
+    
+    /// <summary>
+    /// Apply the <paramref name="batch"/> to the entity with the given <paramref name="entityId"/>.<br/>
+    /// The <paramref name="cache"/> stores the target archetype of the last applied source archetype.
+    /// When applying a batch to many entities - typically stored in only a few archetypes - this avoids
+    /// calculating component types, tags and the archetype lookup for every entity.
+    /// </summary>
+    internal void ApplyBatchTo(EntityBatch batch, int entityId, ref BatchArchetypeCache cache)
+    {
         if (internBase.activeQueryLoops > 0) {
             throw StructuralChangeWithinQueryLoop();
         }
@@ -42,15 +61,24 @@ public partial class EntityStoreBase
         var archetype   = node.archetype;
         var compIndex   = node.compIndex;
         
-        // --- apply AddTag() / RemoveTag() commands
-        var newTags     = archetype.tags;
-        newTags.Add    (batch.tagsAdd);
-        newTags.Remove (batch.tagsRemove);
-        
-        // --- apply AddComponent() / RemoveComponent() commands
-        var newComponentTypes = archetype.componentTypes;
-        newComponentTypes.Add   (batch.componentsAdd);
-        newComponentTypes.Remove(batch.componentsRemove);
+        Archetype newArchetype;
+        if (archetype == cache.source) {
+            newArchetype = cache.target;
+        } else {
+            // --- apply AddTag() / RemoveTag() commands
+            var newTags     = archetype.tags;
+            newTags.Add    (batch.tagsAdd);
+            newTags.Remove (batch.tagsRemove);
+            
+            // --- apply AddComponent() / RemoveComponent() commands
+            var newComponentTypes = archetype.componentTypes;
+            newComponentTypes.Add   (batch.componentsAdd);
+            newComponentTypes.Remove(batch.componentsRemove);
+            
+            newArchetype = GetArchetype(newComponentTypes, newTags);
+            cache.source = archetype;
+            cache.target = newArchetype;
+        }
         
         // --- stash old component values only if an event handler is set or an indexed component changes 
         var oldHeapMap          = archetype.heapMap;
@@ -62,7 +90,6 @@ public partial class EntityStoreBase
         }
         
         // --- change archetype
-        var newArchetype = GetArchetype(newComponentTypes, newTags);
         if (newArchetype != archetype) {
             node.compIndex  = compIndex = Archetype.MoveEntityTo(archetype, entityId, compIndex, newArchetype);
             node.archetype  = newArchetype;
@@ -93,6 +120,7 @@ public partial class EntityStoreBase
         // --- send tags changed event
         var tagsChanged = internBase.tagsChanged;
         if (tagsChanged != null) {
+            var newTags = newArchetype.tags;
             if (!newTags.bitSet.Equals(archetype.tags.bitSet)) {
                 tagsChanged.Invoke(new TagsChanged(this, entityId, newTags, archetype.tags));
             }
