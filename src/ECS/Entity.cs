@@ -612,12 +612,19 @@ public readonly partial struct Entity : IEquatable<Entity>, IComparable<Entity>
     /// Calling <see cref="Entity"/> methods result in <see cref="NullReferenceException"/>'s
     /// </summary>
     /// <remarks>
-    /// Executes in O(1) in case the entity has no children and if it is the last entity in <see cref="Parent"/>.<see cref="ChildIds"/>
+    /// Executes in O(1) in case the entity has no children and if it is the last entity in <see cref="Parent"/>.<see cref="ChildIds"/><br/>
+    /// Throws a <see cref="StructuralChangeException"/> when called within a query loop.
+    /// Use <see cref="CommandBuffer.DeleteEntity"/> to delete entities within a query loop.
     /// </remarks>
     public void DeleteEntity()
     {
         var node = store.nodes[Id];
         if (node.IsAlive(Revision)) {
+            // Deleting an entity moves the last entity of its archetype to the freed position.
+            // Within a query loop this entity would be skipped or processed twice. 
+            if (store.internBase.activeQueryLoops > 0) {
+                throw EntityStoreBase.StructuralChangeWithinQueryLoop();
+            }
             try {
                 // Send event. See: SEND_EVENT notes. Note - Specific characteristic: event is send before deleting the entity.
                 store.DeleteEntityEvent(this);

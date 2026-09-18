@@ -192,7 +192,9 @@ public abstract partial class EntityStoreBase
     
     /// <summary>
     /// Exception is thrown by add / remove component or tag operations potentially
-    /// calling <see cref="Archetype.MoveEntityTo"/> when within a query loop.
+    /// calling <see cref="Archetype.MoveEntityTo"/> when within a query loop.<br/>
+    /// It is also thrown by <see cref="Entity.DeleteEntity"/> as it moves the last entity of an archetype
+    /// to the position of the deleted entity.
     /// </summary>
     /*
         All methods calling MoveEntityTo() have a runtime exception upfront before calling MoveEntityTo() like:
@@ -222,7 +224,7 @@ public abstract partial class EntityStoreBase
 
 /// <summary>
 /// Exception is thrown when executing a <b>structural change</b> within a query loop.<br/>
-/// A structural change is adding / removing components or tags.<br/>
+/// A structural change is adding / removing components or tags and deleting an entity.<br/>
 /// See <a href="https://friflo.gitbook.io/friflo.engine.ecs/documentation/query#structuralchangeexception">Query > StructuralChangeException.</a>
 /// </summary>
 /// <remarks>
