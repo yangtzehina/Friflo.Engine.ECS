@@ -203,4 +203,36 @@ internal sealed class StructHeap<T> : StructHeap, IComponentStash<T>
             return false;
         }
     }
+    
+#region component column access
+    internal override void VisitColumn(Archetype archetype, IComponentColumnVisitor visitor)
+    {
+        var componentType = EntityStoreBase.Static.EntitySchema.components[structIndex];
+        visitor.VisitColumn(archetype, componentType, new Span<T>(components, 0, archetype.entityCount));
+    }
+    
+    /// <summary> Copy the first <paramref name="count"/> components to <paramref name="target"/>. The array is reused if its capacity is sufficient. </summary>
+    internal override void CopyColumnTo(ref Array target, int count)
+    {
+        var array = (T[])target;
+        if (array == null || array.Length < count) {
+            target = array = new T[count];
+        }
+        new ReadOnlySpan<T>(components, 0, count).CopyTo(array);
+    }
+    
+    /// <summary> Copy the first <paramref name="count"/> components of <paramref name="source"/> to the heap. The heap capacity must be sufficient. </summary>
+    internal override void CopyColumnFrom(Array source, int count)
+    {
+        new ReadOnlySpan<T>((T[])source, 0, count).CopyTo(components);
+    }
+    
+    /// <summary> Clear components in the given range only if <typeparamref name="T"/> contains references so they do not keep objects alive. </summary>
+    internal override void ClearColumnReferences(int start, int count)
+    {
+        if (count > 0 && System.Runtime.CompilerServices.RuntimeHelpers.IsReferenceOrContainsReferences<T>()) {
+            new Span<T>(components, start, count).Clear();
+        }
+    }
+    #endregion
 }
